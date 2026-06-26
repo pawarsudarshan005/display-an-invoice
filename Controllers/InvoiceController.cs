@@ -16,23 +16,50 @@ namespace InvoiceApp.Controllers
             _db = db;
         }
 
-        // GET /api/invoice  -> returns the invoice items for the front-end
         [HttpGet]
         public async Task<IActionResult> GetInvoice()
         {
-            // BUG FIX: original code used a null list (`List<Item> items = null;`)
-            // and dereferenced it, throwing NullReferenceException.
-            // We now load the items from the database instead.
-            List<InvoiceItem> items = await _db.InvoiceItems
-                .OrderBy(i => i.ItemID)
-                .ToListAsync();
+            Invoice? invoice = await _db.Invoices
+                .Include(i => i.Items)
+                .OrderBy(i => i.InvoiceID)
+                .FirstOrDefaultAsync();
 
-            if (items.Count == 0)
+            if (invoice is null || invoice.Items.Count == 0)
             {
                 return NotFound("No invoice found");
             }
 
-            return Ok(new { items });
+            var subtotal = invoice.Items.Sum(i => i.Price * i.Quantity);
+            const decimal taxRate = 0.10m; // 10% tax
+            var tax = subtotal * taxRate;
+            var total = subtotal + tax;
+
+            return Ok(new
+            {
+                invoiceNumber = invoice.InvoiceNumber,
+                invoiceDate = invoice.InvoiceDate.ToString("yyyy-MM-dd"),
+                dueDate = invoice.DueDate.ToString("yyyy-MM-dd"),
+                customer = new
+                {
+                    name = invoice.CustomerName,
+                    email = invoice.CustomerEmail,
+                    phone = invoice.CustomerPhone,
+                    address = invoice.BillingAddress
+                },
+                items = invoice.Items
+                    .OrderBy(i => i.ItemID)
+                    .Select(i => new
+                    {
+                        name = i.Name,
+                        quantity = i.Quantity,
+                        price = i.Price,
+                        lineTotal = i.Price * i.Quantity
+                    }),
+                subtotal,
+                taxRate,
+                tax,
+                total
+            });
         }
     }
 }
